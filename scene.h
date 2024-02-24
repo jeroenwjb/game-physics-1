@@ -128,12 +128,10 @@ public:
   //HAS TODO
   Matrix3d getCurrInvInertiaTensor(){
     Matrix3d R=Q2RotMatrix(orientation);
-    
-    /***************
-    TODO
-     ***************/
-    
-    return Matrix3d::Identity(3,3);  //change this to your result
+    Matrix3d I_world = R * invIT * R.transpose();
+    I_world.inverse();
+
+    return I_world;  //change this to your result
   }
   
   
@@ -156,21 +154,20 @@ public:
     //cout << COM;
 
     //// Convert orientation to quaternion
-    //Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
+    Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
 
     //// Calculate the quaternion representing the rotation due to angular velocity
-    //Quaterniond deltaQ;
-    //deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
+    Quaterniond deltaQ;
+    deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
 
     //// Update orientation by quaternion multiplication
-    //q = q * deltaQ;
+    q = q * deltaQ;
 
     //// Normalize the quaternion
-    //q.normalize();
+    q.normalize();
 
     //// Extract the updated orientation as a 4D vector
-    //RowVector4d updatedOrientation;
-    //orientation << q.w(), q.x(), q.y(), q.z();
+    orientation << q.w(), q.x(), q.y(), q.z();
     
     for (int i=0;i<currV.rows();i++)
       currV.row(i)<<QRot(origV.row(i), orientation)+COM;
@@ -188,12 +185,15 @@ public:
       angVelocity.setZero();
       return;
     }
-    double newvel1 = 0;
     RowVector3d impulses = RowVector3d::Zero();
-    for (int i = 0; i < currImpulses.size(); i++) {
-        impulses += currImpulses[i].second;
-    }
-    comVelocity = (impulses / totalMass);
+    impulses = currImpulses[0].second;
+    comVelocity += (impulses / totalMass);
+
+    RowVector3d POC, R;
+    POC = currImpulses[0].first;
+    R = POC - COM;
+    //angVelocity = angVelocity + (impulses * getCurrInvInertiaTensor()).dot(R);
+
     currImpulses.clear();
     //update linear and angular velocity according to all impulses
     /***************
@@ -353,11 +353,15 @@ public:
     
     
     //Interpretation resolution: move each object by inverse mass weighting, unless either is fixed, and then move the other. Remember to respect the direction of contactNormal and update penPosition accordingly.
-    RowVector3d contactPosition = penPosition -depth * contactNormal;
+    RowVector3d contactPosition = penPosition + depth * contactNormal;
     double j, upper, lower;
+    RowVector3d r_a, r_b;
+    r_a = m1.COM - contactPosition;
+    r_b = m2.COM - contactPosition;
+    RowVector3d test = (r_b.cross(contactNormal).transpose() * m2.getCurrInvInertiaTensor() * r_b.cross(contactNormal));
     if (m1.isFixed) {
         upper = (1 + CRCoeff) * (m2.comVelocity.dot(contactNormal));
-        lower = 1 / m2.totalMass;
+        lower = (1 / m2.totalMass); //+ (r_b.cross(contactNormal).transpose()*m2.getCurrInvInertiaTensor()*r_b.cross(contactNormal)).value();
         j = upper / lower;
 
     } else if (m2.isFixed){
@@ -368,7 +372,7 @@ public:
     } else { //inverse mass weighting
         upper = (1 + CRCoeff) * ((m1.comVelocity - m2.comVelocity).dot(contactNormal));
         lower = (1 / m1.totalMass) + (1 / m2.totalMass);
-        j = upper / lower;
+        j = -upper / lower;
     }
     
 
