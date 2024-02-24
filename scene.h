@@ -125,6 +125,7 @@ public:
   
   
   //return the current inverted inertia tensor around the current COM. Update it by applying the orientation
+  //HAS TODO
   Matrix3d getCurrInvInertiaTensor(){
     Matrix3d R=Q2RotMatrix(orientation);
     
@@ -138,7 +139,8 @@ public:
   
   //Update the current position and orientation by integrating the linear and angular velocities, and update currV accordingly
   //You need to modify this according to its purpose
-  void updatePosition(double timeStep){
+  //HAS TODO
+  void updatePosition(double timeStep){   
     //just forward Euler now
     if (isFixed)
       return;  //a fixed object is immobile
@@ -146,6 +148,27 @@ public:
     /***************
      TODO
      ***************/
+
+    //Vector3d gravity; gravity << 0, -9.8, 0.0;
+    //COM += comVelocity * timeStep;
+    COM += comVelocity * timeStep;
+
+    // Convert orientation to quaternion
+    Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
+
+    // Calculate the quaternion representing the rotation due to angular velocity
+    Quaterniond deltaQ;
+    deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
+
+    // Update orientation by quaternion multiplication
+    q = q * deltaQ;
+
+    // Normalize the quaternion
+    q.normalize();
+
+    // Extract the updated orientation as a 4D vector
+    RowVector4d updatedOrientation;
+    orientation << q.w(), q.x(), q.y(), q.z();
     
     for (int i=0;i<currV.rows();i++)
       currV.row(i)<<QRot(origV.row(i), orientation)+COM;
@@ -154,6 +177,7 @@ public:
   
   //Updating velocity *instantaneously*. i.e., not integration from acceleration, but as a result of a collision impulse from the "impulses" list
   //You need to modify this for that purpose.
+  //HAS TODO
   void updateImpulseVelocities(){
     
     if (isFixed){
@@ -169,6 +193,8 @@ public:
      ***************/
   }
   
+
+  //HAS TODO???
   RowVector3d initStaticProperties(const double density)
   {
     //TODO: compute tet volumes and allocate to vertices
