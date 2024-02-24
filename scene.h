@@ -130,7 +130,7 @@ public:
     Matrix3d R=Q2RotMatrix(orientation);
     
     /***************
-     TODO
+    TODO
      ***************/
     
     return Matrix3d::Identity(3,3);  //change this to your result
@@ -146,29 +146,31 @@ public:
       return;  //a fixed object is immobile
     
     /***************
-     TODO
+    TODO
      ***************/
 
     //Vector3d gravity; gravity << 0, -9.8, 0.0;
     //COM += comVelocity * timeStep;
+    //cout << COM << "\n";
     COM += comVelocity * timeStep;
+    //cout << COM;
 
-    // Convert orientation to quaternion
-    Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
+    //// Convert orientation to quaternion
+    //Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
 
-    // Calculate the quaternion representing the rotation due to angular velocity
-    Quaterniond deltaQ;
-    deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
+    //// Calculate the quaternion representing the rotation due to angular velocity
+    //Quaterniond deltaQ;
+    //deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
 
-    // Update orientation by quaternion multiplication
-    q = q * deltaQ;
+    //// Update orientation by quaternion multiplication
+    //q = q * deltaQ;
 
-    // Normalize the quaternion
-    q.normalize();
+    //// Normalize the quaternion
+    //q.normalize();
 
-    // Extract the updated orientation as a 4D vector
-    RowVector4d updatedOrientation;
-    orientation << q.w(), q.x(), q.y(), q.z();
+    //// Extract the updated orientation as a 4D vector
+    //RowVector4d updatedOrientation;
+    //orientation << q.w(), q.x(), q.y(), q.z();
     
     for (int i=0;i<currV.rows();i++)
       currV.row(i)<<QRot(origV.row(i), orientation)+COM;
@@ -191,7 +193,8 @@ public:
     for (int i = 0; i < currImpulses.size(); i++) {
         impulses += currImpulses[i].second;
     }
-    COM = comVelocity + (impulses / totalMass);
+    comVelocity = (impulses / totalMass);
+    currImpulses.clear();
     //update linear and angular velocity according to all impulses
     /***************
      TODO
@@ -350,7 +353,7 @@ public:
     
     
     //Interpretation resolution: move each object by inverse mass weighting, unless either is fixed, and then move the other. Remember to respect the direction of contactNormal and update penPosition accordingly.
-    RowVector3d contactPosition = penPosition; // -depth * contactNormal;
+    RowVector3d contactPosition = penPosition -depth * contactNormal;
     double j, upper, lower;
     if (m1.isFixed) {
         upper = (1 + CRCoeff) * (m2.comVelocity.dot(contactNormal));
@@ -376,7 +379,7 @@ public:
      TODO
      ***************/
     
-    RowVector3d impulse= j * contactNormal;  //change this to your result
+    RowVector3d impulse= -j * contactNormal;  //change this to your result
     
     std::cout<<"impulse: "<<impulse<<std::endl;
     if (impulse.norm()>10e-6){
