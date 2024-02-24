@@ -186,12 +186,15 @@ public:
       return;
     }
     RowVector3d impulses = RowVector3d::Zero();
-    impulses = currImpulses[0].second;
-    comVelocity += (impulses / totalMass);
 
-    RowVector3d POC, R;
-    POC = currImpulses[0].first;
-    R = POC - COM;
+    for (int i = 0; i < currImpulses.size(); i++) {
+        impulses = currImpulses[i].second;
+        comVelocity += (impulses / totalMass);
+
+        RowVector3d POC, R;
+        POC = currImpulses[i].first;
+        R = POC - COM;
+    }
     //angVelocity = angVelocity + (impulses * getCurrInvInertiaTensor()).dot(R);
 
     currImpulses.clear();
@@ -358,21 +361,37 @@ public:
     RowVector3d r_a, r_b;
     r_a = m1.COM - contactPosition;
     r_b = m2.COM - contactPosition;
-    RowVector3d test = (r_b.cross(contactNormal).transpose() * m2.getCurrInvInertiaTensor() * r_b.cross(contactNormal));
+
+    Vector3d b_without_transpose = r_b.cross(contactNormal);
+    RowVector3d b_transposed = b_without_transpose.transpose();
+    Matrix3d b_inertia = m2.getCurrInvInertiaTensor();
+    Vector3d b_not_transposed_inertia = b_inertia * b_without_transpose;
+    double b_dot = b_transposed * b_not_transposed_inertia;
+
+    Vector3d a_without_transpose = r_a.cross(contactNormal);
+    RowVector3d a_transposed = a_without_transpose.transpose();
+    Matrix3d a_inertia = m1.getCurrInvInertiaTensor();
+    Vector3d a_not_transposed_inertia = a_inertia * a_without_transpose;
+    double a_dot = a_transposed * a_not_transposed_inertia;
+
+    std::cout << "a_dot: " << a_dot << std::endl;
+    std::cout << "b_dot: " << b_dot << std::endl;
+    //std::cout << b_dot << std::endl;
+
     if (m1.isFixed) {
-        upper = (1 + CRCoeff) * (m2.comVelocity.dot(contactNormal));
-        lower = (1 / m2.totalMass); //+ (r_b.cross(contactNormal).transpose()*m2.getCurrInvInertiaTensor()*r_b.cross(contactNormal)).value();
+        upper = (1 + CRCoeff) * (-m2.comVelocity.dot(contactNormal));
+        lower = (1 / m2.totalMass) + b_dot; //+ (r_b.cross(contactNormal).transpose()*m2.getCurrInvInertiaTensor()*r_b.cross(contactNormal)).value();
         j = upper / lower;
 
     } else if (m2.isFixed){
         upper = (1 + CRCoeff) * (m1.comVelocity.dot(contactNormal));
-        lower = 1 / m1.totalMass;
+        lower = (1 / m1.totalMass) + a_dot;
         j = -upper / lower;
 
     } else { //inverse mass weighting
         upper = (1 + CRCoeff) * ((m1.comVelocity - m2.comVelocity).dot(contactNormal));
-        lower = (1 / m1.totalMass) + (1 / m2.totalMass);
-        j = -upper / lower;
+        lower = (1 / m1.totalMass) + (1 / m2.totalMass) + a_dot + b_dot;
+        j = upper / lower;
     }
     
 
@@ -383,7 +402,7 @@ public:
      TODO
      ***************/
     
-    RowVector3d impulse= -j * contactNormal;  //change this to your result
+    RowVector3d impulse= j * contactNormal;  //change this to your result
     
     std::cout<<"impulse: "<<impulse<<std::endl;
     if (impulse.norm()>10e-6){
