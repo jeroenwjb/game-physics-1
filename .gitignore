@@ -4,3 +4,6 @@ build/Build/*.*
 build/Build/infomgp-practical1/*.*
 build/Build/infomgp-practical1/Index/*.*
 build/Build/infomgp-practical1/Index/DataStore/*.*
+.vs
+out/
+.vscode
