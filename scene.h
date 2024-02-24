@@ -186,7 +186,12 @@ public:
       angVelocity.setZero();
       return;
     }
-    
+    double newvel1 = 0;
+    RowVector3d impulses = RowVector3d::Zero();
+    for (int i = 0; i < currImpulses.size(); i++) {
+        impulses += currImpulses[i].second;
+    }
+    COM = comVelocity + (impulses / totalMass);
     //update linear and angular velocity according to all impulses
     /***************
      TODO
@@ -345,28 +350,33 @@ public:
     
     
     //Interpretation resolution: move each object by inverse mass weighting, unless either is fixed, and then move the other. Remember to respect the direction of contactNormal and update penPosition accordingly.
-    RowVector3d contactPosition;
-    if (m1.isFixed){
-      /***************
-       TODO
-       ***************/
+    RowVector3d contactPosition = penPosition; // -depth * contactNormal;
+    double j, upper, lower;
+    if (m1.isFixed) {
+        upper = (1 + CRCoeff) * (m2.comVelocity.dot(contactNormal));
+        lower = 1 / m2.totalMass;
+        j = upper / lower;
+
     } else if (m2.isFixed){
-      /***************
-       TODO
-       ***************/
+        upper = (1 + CRCoeff) * (m1.comVelocity.dot(contactNormal));
+        lower = 1 / m1.totalMass;
+        j = -upper / lower;
+
     } else { //inverse mass weighting
-      /***************
-       TODO
-       ***************/
+        upper = (1 + CRCoeff) * ((m1.comVelocity - m2.comVelocity).dot(contactNormal));
+        lower = (1 / m1.totalMass) + (1 / m2.totalMass);
+        j = upper / lower;
     }
     
+
+
     
     //Create impulse and push them into m1.impulses and m2.impulses.
     /***************
      TODO
      ***************/
     
-    RowVector3d impulse=RowVector3d::Zero();  //change this to your result
+    RowVector3d impulse= j * contactNormal;  //change this to your result
     
     std::cout<<"impulse: "<<impulse<<std::endl;
     if (impulse.norm()>10e-6){
