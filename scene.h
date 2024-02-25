@@ -129,7 +129,6 @@ public:
   Matrix3d getCurrInvInertiaTensor(){
     Matrix3d R=Q2RotMatrix(orientation);
     Matrix3d I_world = R * invIT * R.transpose();
-    I_world.inverse();
 
     return I_world;  //change this to your result
   }
@@ -158,8 +157,13 @@ public:
 
     //// Calculate the quaternion representing the rotation due to angular velocity
     Quaterniond deltaQ;
-    deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
-
+    Vector3d omega = angVelocity * timeStep;
+    double theta = omega.norm();
+    Vector3d rotation_axis = omega.normalized();
+    
+    //deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
+    deltaQ = Quaterniond(cos(theta / 2), sin(theta / 2) * rotation_axis.x(), sin(theta / 2) * rotation_axis.y(), sin(theta / 2) * rotation_axis.z());
+    
     //// Update orientation by quaternion multiplication
     q = q * deltaQ;
 
@@ -186,16 +190,26 @@ public:
       return;
     }
     RowVector3d impulses = RowVector3d::Zero();
-
+    RowVector3d POC, R;
+    cout << "comVelocity before: " << comVelocity << endl;
     for (int i = 0; i < currImpulses.size(); i++) {
         impulses = currImpulses[i].second;
         comVelocity += (impulses / totalMass);
+        cout << "comVelocity after: " << comVelocity << endl;
 
-        RowVector3d POC, R;
         POC = currImpulses[i].first;
+        //R = POC - COM;
+        //norm_R = R;
+        //norm_R.normalize();
+        //Vector3d R_crossed = R.cross(norm_R);
         R = POC - COM;
+        RowVector3d torque = R.cross(impulses);
+        cout << "angVelocity before: " << angVelocity << endl;
+
+        angVelocity += getCurrInvInertiaTensor() * torque.transpose();
+        //angVelocity += (impulses * getCurrInvInertiaTensor()) * R_crossed; //WHY IS THIS NOT WORKING AGHHHHH
+        cout << "angVelocity after: " << angVelocity << endl;
     }
-    //angVelocity = angVelocity + (impulses * getCurrInvInertiaTensor()).dot(R);
 
     currImpulses.clear();
     //update linear and angular velocity according to all impulses
@@ -357,8 +371,38 @@ public:
     
     //Interpretation resolution: move each object by inverse mass weighting, unless either is fixed, and then move the other. Remember to respect the direction of contactNormal and update penPosition accordingly.
     RowVector3d contactPosition = penPosition + depth * contactNormal;
+    std::cout << "contactPosition: " << contactPosition << std::endl;
+
+
+    double tot_inv_mass;
+    RowVector3d moveperINVmass;
+    if (m1.isFixed) {
+        tot_inv_mass = 1 / m2.totalMass;
+        moveperINVmass = depth * contactNormal / tot_inv_mass;
+        RowVector3d correction = moveperINVmass / m2.totalMass;
+        m2.COM += correction;
+        
+
+    } else if (m2.isFixed){
+        tot_inv_mass = 1 / m1.totalMass;
+        moveperINVmass = depth * contactNormal / tot_inv_mass;
+        RowVector3d correction = -moveperINVmass / m1.totalMass;
+        m1.COM += correction;
+
+    } else { //inverse mass weighting
+        tot_inv_mass = (1 / m1.totalMass) + (1 / m2.totalMass);
+        moveperINVmass = depth * contactNormal / tot_inv_mass;
+        RowVector3d correctionm1 = -moveperINVmass / m1.totalMass;
+        RowVector3d correctionm2 = moveperINVmass / m2.totalMass;
+        m1.COM += correctionm1;
+        m2.COM += correctionm2;
+    }
+    
+    std::cout << "m1.COM: " << m1.COM << std::endl;
+    std::cout << "m2.COM: " << m2.COM << std::endl;
+
     double j, upper, lower;
-    RowVector3d r_a, r_b;
+    /*RowVector3d r_a, r_b;
     r_a = m1.COM - contactPosition;
     r_b = m2.COM - contactPosition;
 
@@ -373,36 +417,55 @@ public:
     Matrix3d a_inertia = m1.getCurrInvInertiaTensor();
     Vector3d a_not_transposed_inertia = a_inertia * a_without_transpose;
     double a_dot = a_transposed * a_not_transposed_inertia;
-
     std::cout << "a_dot: " << a_dot << std::endl;
     std::cout << "b_dot: " << b_dot << std::endl;
     //std::cout << b_dot << std::endl;
 
+
     if (m1.isFixed) {
         upper = (1 + CRCoeff) * (-m2.comVelocity.dot(contactNormal));
-        lower = (1 / m2.totalMass) + b_dot; //+ (r_b.cross(contactNormal).transpose()*m2.getCurrInvInertiaTensor()*r_b.cross(contactNormal)).value();
+        lower = (1 / m2.totalMass) + b_dot;
         j = upper / lower;
 
-    } else if (m2.isFixed){
+    }
+    else if (m2.isFixed) {
         upper = (1 + CRCoeff) * (m1.comVelocity.dot(contactNormal));
         lower = (1 / m1.totalMass) + a_dot;
         j = -upper / lower;
 
-    } else { //inverse mass weighting
-        upper = (1 + CRCoeff) * ((m1.comVelocity - m2.comVelocity).dot(contactNormal));
-        lower = (1 / m1.totalMass) + (1 / m2.totalMass) + a_dot + b_dot;
-        j = upper / lower;
     }
+    else { //inverse mass weighting
+    upper = (1 + CRCoeff) * ((m1.comVelocity - m2.comVelocity).dot(contactNormal));
+    lower = (1 / m1.totalMass) + (1 / m2.totalMass) + a_dot + b_dot;
+    j = upper / lower;
+    //}
+    */
+    RowVector3d r1 = contactPosition - m1.COM;
+    RowVector3d r2 = contactPosition - m2.COM;
+    RowVector3d relvel = (m2.comVelocity + m2.angVelocity.cross(r2)) - (m1.comVelocity + m1.angVelocity.cross(r1));
+    cout << "rad1: " << r1 << endl;
+    cout << "rad2: " << r2 << endl;
+
+    double velnormal = relvel.dot(contactNormal);
+
+    //Not sure which raCrossN to use for better results
+
+    if (velnormal > 0) return;
+    cout << "closeVelocity: " << velnormal << endl;
+    RowVector3d raTrans = r1.cross(contactNormal).transpose();
+    double raCrossN = r1.cross(contactNormal).dot((r1.cross(contactNormal) * m1.getCurrInvInertiaTensor()));
+    //double raCrossN = r1.cross(contactNormal).dot((raTrans * m1.getCurrInvInertiaTensor()));
+
+    RowVector3d rbTrans = r2.cross(contactNormal).transpose();
+    double rbCrossN = r2.cross(contactNormal).dot((r2.cross(contactNormal) * m2.getCurrInvInertiaTensor()));
+    //double rbCrossN = r2.cross(contactNormal).dot((rbTrans * m2.getCurrInvInertiaTensor()));
     
-
-
+    double invEffectiveMass = tot_inv_mass + raCrossN + rbCrossN;
+    j = -(1 + CRCoeff) * velnormal / invEffectiveMass;
     
     //Create impulse and push them into m1.impulses and m2.impulses.
-    /***************
-     TODO
-     ***************/
     
-    RowVector3d impulse= j * contactNormal;  //change this to your result
+    RowVector3d impulse= j * contactNormal;  //changed this to my result
     
     std::cout<<"impulse: "<<impulse<<std::endl;
     if (impulse.norm()>10e-6){
