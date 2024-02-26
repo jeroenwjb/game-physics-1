@@ -148,13 +148,13 @@ class CustomMenu : public igl::opengl::glfw::imgui::ImGuiMenu
             if (ImGui::InputFloat("Time Step", &timeStep)) {
                 mgpViewer.core().animation_max_fps = (((int)1.0 / timeStep));
             }
-            ImGui::InputFloat("Air drag", &DragCoeff, 0, 0, "%.2f");
+            ImGui::InputFloat("Air Drag", &DragCoeff, 0, 0, "%.2f");
             DragCoeff = (DragCoeff < 0) ? 0 : (DragCoeff >= 1.0) ? 1.0 : DragCoeff;
         }
-        if (ImGui::CollapsingHeader("Apply velocity", ImGuiTreeNodeFlags_DefaultOpen)){
+        if (ImGui::CollapsingHeader("Apply Impulse", ImGuiTreeNodeFlags_DefaultOpen)){
 
             bool applyButtonPressed = false;
-            ImGui::InputInt("Selected object", &scene.selectedObj, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            ImGui::InputInt("Selected Object", &scene.selectedObj, 1, 10, ImGuiInputTextFlags_CharsDecimal);
             ImGui::InputDouble("x dir", &x, 0, 0, "%.2f");
             ImGui::InputDouble("y dir", &y, 0, 0, "%.2f");
             ImGui::InputDouble("z dir", &z, 0, 0, "%.2f");
