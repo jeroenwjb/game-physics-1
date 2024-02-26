@@ -14,7 +14,12 @@ float currTime = 0;
 bool animationHack;  //fixing the weird camera bug in libigl
 //initial values
 float timeStep = 0.02;
-float CRCoeff= 1.0;
+float CRCoeff = 1.0;
+float DragCoeff = 0.0;
+
+double x = 0;
+double y = 0;
+double z = 0;
 
 Scene scene;
 
@@ -96,7 +101,7 @@ bool key_down(igl::opengl::glfw::Viewer &viewer, unsigned char key, int modifier
   if (key == 'S')
   {
     if (!viewer.core().is_animating){
-      scene.updateScene(timeStep, CRCoeff);
+      scene.updateScene(timeStep, CRCoeff, DragCoeff);
       currTime+=timeStep;
       updateMeshes(viewer);
       std::cout <<"currTime: "<<currTime<<std::endl;
@@ -116,7 +121,7 @@ bool pre_draw(igl::opengl::glfw::Viewer &viewer)
   
   if (viewer.core().is_animating){
     if (!animationHack)
-      scene.updateScene(timeStep, CRCoeff);
+        scene.updateScene(timeStep, CRCoeff, DragCoeff);
     else
       viewer.core().is_animating=false;
     animationHack=false;
@@ -131,20 +136,47 @@ bool pre_draw(igl::opengl::glfw::Viewer &viewer)
 class CustomMenu : public igl::opengl::glfw::imgui::ImGuiMenu
 {
   
-  virtual void draw_viewer_menu() override
-  {
-    // Draw parent menu
-    //ImGuiMenu::draw_viewer_menu();
-    
-    // Add new group
-    if (ImGui::CollapsingHeader("Algorithm Options", ImGuiTreeNodeFlags_DefaultOpen))
+    virtual void draw_viewer_menu() override
     {
-      ImGui::InputFloat("CR Coeff", &CRCoeff, 0, 0, "%.2f");
-      if (ImGui::InputFloat("Time Step", &timeStep)) {
-        mgpViewer.core().animation_max_fps = (((int)1.0/timeStep));
-      }
+        // Draw parent menu
+        //ImGuiMenu::draw_viewer_menu();
+
+        // Add new group
+        if (ImGui::CollapsingHeader("Algorithm Options", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::InputFloat("CR Coeff", &CRCoeff, 0, 0, "%.2f");
+            if (ImGui::InputFloat("Time Step", &timeStep)) {
+                mgpViewer.core().animation_max_fps = (((int)1.0 / timeStep));
+            }
+            ImGui::InputFloat("Air drag", &DragCoeff, 0, 0, "%.2f");
+            DragCoeff = (DragCoeff < 0) ? 0 : (DragCoeff >= 1.0) ? 1.0 : DragCoeff;
+        }
+        if (ImGui::CollapsingHeader("Apply velocity", ImGuiTreeNodeFlags_DefaultOpen)){
+
+            bool applyButtonPressed = false;
+            ImGui::InputInt("Selected object", &scene.selectedObj, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            ImGui::InputDouble("x dir", &x, 0, 0, "%.2f");
+            ImGui::InputDouble("y dir", &y, 0, 0, "%.2f");
+            ImGui::InputDouble("z dir", &z, 0, 0, "%.2f");
+            //std:cout << scene.meshes.size() << "\n";
+            // Clamp the value to the specified range
+            scene.selectedObj = (scene.selectedObj < 0) ? 0 : (scene.selectedObj >= scene.meshes.size()) ? scene.meshes.size() - 1 : scene.selectedObj;
+            //scene.meshes[scene.selectedObj].
+
+            if (ImGui::Button("Apply")) {
+                applyButtonPressed = true;
+            }
+
+            if (applyButtonPressed) {
+                //std::cout << "applying impulse" << "\n";
+                scene.applyExternalForce(scene.selectedObj, x, y, z);
+                applyButtonPressed = false;
+                // Apply changes using the value of myInteger
+            }
+        }   
+
     }
-  }
+
 };
 
 
@@ -168,7 +200,7 @@ int main(int argc, char *argv[])
   //load scene from file
   scene.loadScene(std::string(argv[1]),std::string(argv[2]));
 
-  scene.updateScene(0.0, CRCoeff);
+  scene.updateScene(0.0, CRCoeff, DragCoeff);
   
   // Viewer Settings
   for (int i=0;i<scene.meshes.size();i++){

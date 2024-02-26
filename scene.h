@@ -130,7 +130,7 @@ public:
     Matrix3d R=Q2RotMatrix(orientation);
     Matrix3d I_world = R * invIT * R.transpose();
 
-    return I_world;  //change this to your result
+    return I_world; 
   }
   
   
@@ -273,22 +273,27 @@ public:
   
   //Integrating the linear and angular velocities of the object
   //You need to modify this to integrate from acceleration in the field (basically gravity)
-  void updateVelocity(double timeStep){
-    
+  void updateVelocity(double timeStep, double dragCoeff){
     if (isFixed)
       return;
-    
     //integrating external forces (only gravity)
     Vector3d gravity; gravity<<0,-9.8,0.0;
     comVelocity+=gravity*timeStep;
+    comVelocity -= dragCoeff * comVelocity;
+    angVelocity -= dragCoeff * angVelocity;
   }
   
   
   //the full integration for the time step (velocity + position)
   //You need to modify this if you are changing the integration
-  void integrate(double timeStep){
-    updateVelocity(timeStep);
+  void integrate(double timeStep, double dragCoeff){
+    updateVelocity(timeStep, dragCoeff);
     updatePosition(timeStep);
+  }
+
+  void applyExternalForce(RowVector3d vec) {
+      currImpulses.push_back(Impulse(COM, vec));
+      updateImpulseVelocities();
   }
   
   
@@ -345,6 +350,7 @@ public:
   double currTime;
   int numFullV, numFullT;
   std::vector<Mesh> meshes;
+  int selectedObj;
   
   //adding an objects. You do not need to update this generally
   void addMesh(const MatrixXd& V, const MatrixXi& F, const MatrixXi& T, const double density, const bool isFixed, const RowVector3d& COM, const RowVector4d& orientation){
@@ -377,25 +383,28 @@ public:
     double tot_inv_mass;
     RowVector3d moveperINVmass;
     if (m1.isFixed) {
+        m2.COM += depth * contactNormal;
         tot_inv_mass = 1 / m2.totalMass;
-        moveperINVmass = depth * contactNormal / tot_inv_mass;
-        RowVector3d correction = moveperINVmass / m2.totalMass;
-        m2.COM += correction;
+        // moveperINVmass = depth * contactNormal / tot_inv_mass;
+        // RowVector3d correction = moveperINVmass / m2.totalMass;
+        // m2.COM += correction;
         
 
     } else if (m2.isFixed){
+        m1.COM -= depth * contactNormal;
         tot_inv_mass = 1 / m1.totalMass;
-        moveperINVmass = depth * contactNormal / tot_inv_mass;
-        RowVector3d correction = -moveperINVmass / m1.totalMass;
-        m1.COM += correction;
+        //moveperINVmass = depth * contactNormal / tot_inv_mass;
+        //RowVector3d correction = -moveperINVmass / m1.totalMass;
+        //m1.COM += correction;
 
     } else { //inverse mass weighting
         tot_inv_mass = (1 / m1.totalMass) + (1 / m2.totalMass);
-        moveperINVmass = depth * contactNormal / tot_inv_mass;
-        RowVector3d correctionm1 = -moveperINVmass / m1.totalMass;
-        RowVector3d correctionm2 = moveperINVmass / m2.totalMass;
-        m1.COM += correctionm1;
-        m2.COM += correctionm2;
+        double m1Ratio = (1 / m1.totalMass) / tot_inv_mass;
+        //moveperINVmass = depth * contactNormal / tot_inv_mass;
+        //RowVector3d correctionm1 = -moveperINVmass / m1.totalMass;
+        //RowVector3d correctionm2 = moveperINVmass / m2.totalMass;
+        m1.COM -= depth*contactNormal * m1Ratio;
+        m2.COM += depth * contactNormal * (1- m1Ratio);
     }
     
     std::cout << "m1.COM: " << m1.COM << std::endl;
@@ -453,16 +462,17 @@ public:
     if (velnormal > 0) return;
     cout << "closeVelocity: " << velnormal << endl;
     RowVector3d raTrans = r1.cross(contactNormal).transpose();
-    double raCrossN = r1.cross(contactNormal).dot((r1.cross(contactNormal) * m1.getCurrInvInertiaTensor()));
-    //double raCrossN = r1.cross(contactNormal).dot((raTrans * m1.getCurrInvInertiaTensor()));
+    //double raCrossN = r1.cross(contactNormal).dot((r1.cross(contactNormal) * m1.getCurrInvInertiaTensor()));
+    double raCrossN = r1.cross(contactNormal).dot((raTrans * m1.getCurrInvInertiaTensor()));
 
     RowVector3d rbTrans = r2.cross(contactNormal).transpose();
-    double rbCrossN = r2.cross(contactNormal).dot((r2.cross(contactNormal) * m2.getCurrInvInertiaTensor()));
-    //double rbCrossN = r2.cross(contactNormal).dot((rbTrans * m2.getCurrInvInertiaTensor()));
+    //double rbCrossN = r2.cross(contactNormal).dot((r2.cross(contactNormal) * m2.getCurrInvInertiaTensor()));
+    double rbCrossN = r2.cross(contactNormal).dot((rbTrans * m2.getCurrInvInertiaTensor()));
+    //double invEffectiveMass = tot_inv_mass + a_dot + b_dot;
     
     double invEffectiveMass = tot_inv_mass + raCrossN + rbCrossN;
     j = -(1 + CRCoeff) * velnormal / invEffectiveMass;
-    
+    std::cout << "invEffectiveMass: " << 1 / invEffectiveMass << std::endl;
     //Create impulse and push them into m1.impulses and m2.impulses.
     
     RowVector3d impulse= j * contactNormal;  //changed this to my result
@@ -479,20 +489,21 @@ public:
     m1.updateImpulseVelocities();
     m2.updateImpulseVelocities();
   }
-  
-  
-  
+
+  void applyExternalForce(int i,double x, double y, double z) {
+      meshes[i].applyExternalForce(RowVector3d(x,y,z));
+  }
   /*********************************************************************
    This function handles a single time step by:
    1. Integrating velocities, positions, and orientations by the timeStep
    2. detecting and handling collisions with the coefficient of restitutation CRCoeff
    3. updating the visual scene in fullV and fullT
    *********************************************************************/
-  void updateScene(double timeStep, double CRCoeff){
+  void updateScene(double timeStep, double CRCoeff, double dragCoeff){
     
     //integrating velocity, position and orientation from forces and previous states
     for (int i=0;i<meshes.size();i++)
-      meshes[i].integrate(timeStep);
+        meshes[i].integrate(timeStep, dragCoeff);
     
     //detecting and handling collisions when found
     //This is done exhaustively: checking every two objects in the scene.
