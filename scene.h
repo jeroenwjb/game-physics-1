@@ -141,10 +141,10 @@ public:
 
     COM += comVelocity * timeStep;
 
-    //// Convert orientation to quaternion
+    // Convert orientation to quaternion
     Quaterniond q(orientation[0], orientation[1], orientation[2], orientation[3]);
 
-    //// Calculate the quaternion representing the rotation due to angular velocity
+    // Calculate the quaternion representing the rotation due to angular velocity
     Quaterniond deltaQ;
 
 
@@ -153,7 +153,7 @@ public:
     // Update orientation by quaternion multiplication
     q = q * deltaQ;
     q.normalize();
-    //// Extract the updated orientation as a 4D vector
+    // Extract the updated orientation as a 4D vector
     orientation << q.w(), q.x(), q.y(), q.z();
     
     for (int i=0;i<currV.rows();i++)
@@ -180,20 +180,13 @@ public:
         impulses = std::get<1>(currImpulses[i]);
 
         if (i % 2 == 0) {
-            //RowVector3d result = (impulses.array() / totalMass) * normal.array();
             comVelocity += (impulses / totalMass);
             cout << "comVelocity after: " << comVelocity << endl;
         }
         else {
-            //R = POC - COM;
-            //Vector3d t = R.cross(normal);
-            //Vector3d t = R.cross(impulses);
-            //RowVector3d torque = R.cross(impulses);
+
             cout << "angVelocity before: " << angVelocity << endl;
 
-            //angVelocity += getCurrInvInertiaTensor() * t;
-            //angVelocity += impulses.transpose() * getCurrInvInertiaTensor() * R.cross(normal);
-            //cout << "angVelocity to be applied: " << impulses * getCurrInvInertiaTensor() * R.cross(normal) << endl;
             angVelocity += impulses;
             cout << "angVelocity after: " << angVelocity << endl;
         }
@@ -389,38 +382,19 @@ public:
     std::cout << "m2.COM: " << m2.COM << std::endl;
 
     double j, upper, lower;
-    //RowVector3d r_a, r_b;
-    auto r_a = contactPosition - m1.COM;
-    auto r_b = contactPosition - m2.COM;
+
+    RowVector3d r_a = contactPosition - m1.COM;
+    RowVector3d r_b = contactPosition - m2.COM;
     cout << "rad1: " << r_a << "\n";
     cout << "rad2: " << r_b << "\n";
     double close_velocity = (((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a))).dot(contactNormal));
     double jointAugmentedMasses = (1 / m1.totalMass) + (1 / m2.totalMass);
 
-
-    //Vector3d a_without_transpose = r_a.cross(contactNormal);
-    //RowVector3d a_transposed = a_without_transpose.transpose();
-    //Matrix3d a_inertia = m1.getCurrInvInertiaTensor();
-    //Vector3d a_not_transposed_inertia = a_inertia * a_without_transpose;
-    //double a_dot = a_transposed * a_not_transposed_inertia;
     double a_dot = r_a.cross(contactNormal) * m1.getCurrInvInertiaTensor() * r_a.cross(contactNormal).transpose();
     double b_dot = r_b.cross(contactNormal) * m2.getCurrInvInertiaTensor() * r_b.cross(contactNormal).transpose();
-    //std::cout << "a_dot: " << a_dot << std::endl;
-    //std::cout << "b_dot: " << b_dot << std::endl;
-    //Vector3d b_without_transpose = r_b.cross(contactNormal);
-    //RowVector3d b_transposed = b_without_transpose.transpose();
-    //Matrix3d b_inertia = m2.getCurrInvInertiaTensor();
-    //Vector3d b_not_transposed_inertia = b_inertia * b_without_transpose;
-    //double b_dot = b_transposed * b_not_transposed_inertia;
 
-
-    //double jDenominator = (1 / m1.totalMass) + (1 / m2.totalMass) 
-    //    + contactNormal.dot(a_inertia * r_a.cross(contactNormal).cross(r_a))
-    //    + contactNormal.dot(b_inertia * r_b.cross(contactNormal).cross(r_b));
     double a_b_dot = a_dot + b_dot;
     std::cout << "closeVelocity: " << close_velocity << endl;
-    //RowVector3d t = (contactNormal.cross(close_velocity)).cros(contactNormal);
-
 
     RowVector3d t = (contactNormal.normalized().cross((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a)))).cross(contactNormal.normalized());
 
@@ -431,8 +405,6 @@ public:
     lower = jointAugmentedMasses + a_dot + b_dot;
     j = upper / lower;
     
-    //std::cout << "jointAugmentedMasses: " << 1 / jointAugmentedMasses << endl;
-    //double j = -1 * ((1.0 + CRCoeff) * close_velocity) / (a_b_dot + jointAugmentedMasses);
     std::cout << "t.normalized() * FricCoeff = " << t.normalized() * FricCoeff << std::endl;
     std::cout << "contactNormal.normalized()" << contactNormal.normalized() << std::endl;
 
@@ -440,17 +412,19 @@ public:
     std::cout << "normila_fric: " << normila_fric << endl << endl << endl << endl;
 
     RowVector3d impulse1 = j * (normila_fric);
-    //RowVector3d impulse2 = j * (normila_fric.cross(r_a)) * m1.getCurrInvInertiaTensor();
     RowVector3d impulse2 = (r_a.cross(normila_fric)) * m1.getCurrInvInertiaTensor() * j;
-    //RowVector3d impulse3 = j * (normila_fric.cross(r_b)) * m2.getCurrInvInertiaTensor();
     RowVector3d impulse3 = (r_b.cross(normila_fric)) * m2.getCurrInvInertiaTensor() * j;
 
     std::cout<<"impulse: "<< impulse1 <<std::endl;
     if (impulse1.norm()>10e-6){
         m1.currImpulses.push_back(Impulse(contactPosition, -impulse1));
-        m1.currImpulses.push_back(Impulse(contactPosition, impulse2));
         m2.currImpulses.push_back(Impulse(contactPosition, impulse1));
-        m2.currImpulses.push_back(Impulse(contactPosition, -impulse3));
+    }
+    if (impulse2.norm() > 10e-6) {
+        m1.currImpulses.push_back(Impulse(contactPosition, -impulse2));
+    }
+    if (impulse3.norm() > 10e-6) {
+        m2.currImpulses.push_back(Impulse(contactPosition, impulse3));
     }
     
     
