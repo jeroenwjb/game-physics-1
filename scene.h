@@ -20,7 +20,7 @@ void center(const void *_obj, ccd_vec3_t *dir);
 
 
 //Impulse is defined as a pair <position, direction>
-typedef std::pair<RowVector3d,RowVector3d> Impulse;
+typedef std::tuple<RowVector3d,RowVector3d> Impulse;
 
 
 //the class the contains each individual rigid objects and their functionality
@@ -127,10 +127,8 @@ public:
   //return the current inverted inertia tensor around the current COM. Update it by applying the orientation
   //HAS TODO
   Matrix3d getCurrInvInertiaTensor(){
-    Matrix3d R=Q2RotMatrix(orientation);
-    Matrix3d I_world = R * invIT * R.transpose();
-
-    return I_world; 
+      Matrix3d R = Q2RotMatrix(orientation);
+      return R * invIT * R.transpose();
   }
   
   
@@ -148,8 +146,10 @@ public:
 
     //// Calculate the quaternion representing the rotation due to angular velocity
     Quaterniond deltaQ;
+
+
     deltaQ = Quaterniond(1, angVelocity[0] * timeStep / 2, angVelocity[1] * timeStep / 2, angVelocity[2] * timeStep / 2);
-    
+
     // Update orientation by quaternion multiplication
     q = q * deltaQ;
     q.normalize();
@@ -164,7 +164,7 @@ public:
   //Updating velocity *instantaneously*. i.e., not integration from acceleration, but as a result of a collision impulse from the "impulses" list
   //You need to modify this for that purpose.
   //HAS TODO
-  void updateImpulseVelocities(){
+  void updateImpulseVelocities(double FricCoeff){
     
     if (isFixed){
       comVelocity.setZero();
@@ -173,26 +173,32 @@ public:
       return;
     }
     RowVector3d impulses = RowVector3d::Zero();
-    RowVector3d POC, R;
+    RowVector3d POC, R, normal;
     cout << "comVelocity before: " << comVelocity << endl;
     for (int i = 0; i < currImpulses.size(); i++) {
-        impulses = currImpulses[i].second;
-        //impulses = RowVector3d(1.14865e-08, 44256.2, 1.72298e-08);
-        comVelocity += (impulses / totalMass);
-        cout << "comVelocity after: " << comVelocity << endl;
+        POC = std::get<0>(currImpulses[i]);
+        impulses = std::get<1>(currImpulses[i]);
 
-        POC = currImpulses[i].first;
-        R = POC - COM;
-        RowVector3d t = R.cross(impulses);
-        cout << "angVelocity before: " << angVelocity << endl;
+        if (i % 2 == 0) {
+            //RowVector3d result = (impulses.array() / totalMass) * normal.array();
+            comVelocity += (impulses / totalMass);
+            cout << "comVelocity after: " << comVelocity << endl;
+        }
+        else {
+            //R = POC - COM;
+            //Vector3d t = R.cross(normal);
+            //Vector3d t = R.cross(impulses);
+            //RowVector3d torque = R.cross(impulses);
+            cout << "angVelocity before: " << angVelocity << endl;
 
-        angVelocity += getCurrInvInertiaTensor() * t.transpose();
-        cout << "angVelocity after: " << angVelocity << endl;
+            //angVelocity += getCurrInvInertiaTensor() * t;
+            //angVelocity += impulses.transpose() * getCurrInvInertiaTensor() * R.cross(normal);
+            //cout << "angVelocity to be applied: " << impulses * getCurrInvInertiaTensor() * R.cross(normal) << endl;
+            angVelocity += impulses;
+            cout << "angVelocity after: " << angVelocity << endl;
+        }
     }
-
     currImpulses.clear();
-    //update linear and angular velocity according to all impulses
-
   }
   
 
@@ -266,9 +272,10 @@ public:
     updatePosition(timeStep);
   }
 
-  void applyExternalForce(RowVector3d vec) {
+  void applyExternalForce(RowVector3d vec, double FricCoeff) {
+      RowVector3d vec_normalized = vec.normalized();
       currImpulses.push_back(Impulse(COM, vec));
-      updateImpulseVelocities();
+      updateImpulseVelocities(FricCoeff);
   }
   
   
@@ -342,7 +349,7 @@ public:
    penPosition: a point on m2 such that if m2 <= m2 + depth*contactNormal, then penPosition+depth*contactNormal is the common contact point
    CRCoeff: the coefficient of restitution
    *********************************************************************/
-  void handleCollision(Mesh& m1, Mesh& m2,const double& depth, const RowVector3d& contactNormal,const RowVector3d& penPosition, const double CRCoeff){
+  void handleCollision(Mesh& m1, Mesh& m2,const double& depth, const RowVector3d& contactNormal,const RowVector3d& penPosition, const double CRCoeff, const double FricCoeff){
     
     
     std::cout<<"contactNormal: "<<contactNormal<<std::endl;
@@ -356,15 +363,18 @@ public:
 
 
     double tot_inv_mass;
-    RowVector3d moveperINVmass;
+     RowVector3d moveperINVmass;
     if (m1.isFixed) {
         m2.COM += depth * contactNormal;
         tot_inv_mass = 1 / m2.totalMass;
-        
+
+        //cout << "if 1" << "\n";
+
 
     } else if (m2.isFixed){
         m1.COM -= depth * contactNormal;
         tot_inv_mass = 1 / m1.totalMass;
+        //cout << "if 2" << "\n";
 
     } else { //inverse mass weighting
         tot_inv_mass = (1 / m1.totalMass) + (1 / m2.totalMass);
@@ -372,52 +382,92 @@ public:
 
         m1.COM -= depth * contactNormal * massRat;
         m2.COM += depth * contactNormal * (1- massRat);
+        //cout << "if 3" << "\n";
     }
     
     std::cout << "m1.COM: " << m1.COM << std::endl;
     std::cout << "m2.COM: " << m2.COM << std::endl;
 
     double j, upper, lower;
-    RowVector3d r_a, r_b;
-    r_a = contactPosition - m1.COM;
-    r_b = contactPosition - m2.COM;
+    //RowVector3d r_a, r_b;
+    auto r_a = contactPosition - m1.COM;
+    auto r_b = contactPosition - m2.COM;
+    cout << "rad1: " << r_a << "\n";
+    cout << "rad2: " << r_b << "\n";
+    double close_velocity = (((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a))).dot(contactNormal));
+    double jointAugmentedMasses = (1 / m1.totalMass) + (1 / m2.totalMass);
 
-    Vector3d b_without_transpose = r_b.cross(contactNormal);
-    RowVector3d b_transposed = b_without_transpose.transpose();
-    Matrix3d b_inertia = m2.getCurrInvInertiaTensor();
-    Vector3d b_not_transposed_inertia = b_inertia * b_without_transpose;
-    double b_dot = b_transposed * b_not_transposed_inertia;
 
-    Vector3d a_without_transpose = r_a.cross(contactNormal);
-    RowVector3d a_transposed = a_without_transpose.transpose();
-    Matrix3d a_inertia = m1.getCurrInvInertiaTensor();
-    Vector3d a_not_transposed_inertia = a_inertia * a_without_transpose;
-    double a_dot = a_transposed * a_not_transposed_inertia;
+    //Vector3d a_without_transpose = r_a.cross(contactNormal);
+    //RowVector3d a_transposed = a_without_transpose.transpose();
+    //Matrix3d a_inertia = m1.getCurrInvInertiaTensor();
+    //Vector3d a_not_transposed_inertia = a_inertia * a_without_transpose;
+    //double a_dot = a_transposed * a_not_transposed_inertia;
+    double a_dot = r_a.cross(contactNormal) * m1.getCurrInvInertiaTensor() * r_a.cross(contactNormal).transpose();
+    double b_dot = r_b.cross(contactNormal) * m2.getCurrInvInertiaTensor() * r_b.cross(contactNormal).transpose();
     //std::cout << "a_dot: " << a_dot << std::endl;
     //std::cout << "b_dot: " << b_dot << std::endl;
+    //Vector3d b_without_transpose = r_b.cross(contactNormal);
+    //RowVector3d b_transposed = b_without_transpose.transpose();
+    //Matrix3d b_inertia = m2.getCurrInvInertiaTensor();
+    //Vector3d b_not_transposed_inertia = b_inertia * b_without_transpose;
+    //double b_dot = b_transposed * b_not_transposed_inertia;
 
-    std::cout << "Closed Velocity: " << (((m1.comVelocity + m1.angVelocity.cross(r_a)) - (m2.comVelocity + m2.angVelocity.cross(r_b))).dot(contactNormal)) << endl;
-    upper = (1 + CRCoeff) * (((m1.comVelocity + m1.angVelocity.cross(r_a)) - (m2.comVelocity + m2.angVelocity.cross(r_b))).dot(contactNormal));
-    lower = (1 / m1.totalMass) + (1 / m2.totalMass) + a_dot + b_dot;
-    j = upper / lower;
-    std::cout << "jointAugmentedMasses: " << 1 / lower << endl;
-    RowVector3d impulse= j * contactNormal;  //changed this to my result
+
+    //double jDenominator = (1 / m1.totalMass) + (1 / m2.totalMass) 
+    //    + contactNormal.dot(a_inertia * r_a.cross(contactNormal).cross(r_a))
+    //    + contactNormal.dot(b_inertia * r_b.cross(contactNormal).cross(r_b));
+    double a_b_dot = a_dot + b_dot;
+    std::cout << "closeVelocity: " << close_velocity << endl;
+    //RowVector3d t = (contactNormal.cross(close_velocity)).cros(contactNormal);
+
+
+    RowVector3d t = (contactNormal.normalized().cross((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a)))).cross(contactNormal.normalized());
+
+    // Output the result
+    std::cout << "t_arrow = " << t.transpose() << std::endl;
     
-    std::cout<<"impulse: "<<impulse<<std::endl;
-    if (impulse.norm()>10e-6){
-      m1.currImpulses.push_back(Impulse(contactPosition, -impulse));
-      m2.currImpulses.push_back(Impulse(contactPosition, impulse));
+    upper = - (1 + CRCoeff) * close_velocity;
+    lower = jointAugmentedMasses + a_dot + b_dot;
+    j = upper / lower;
+    
+    //std::cout << "jointAugmentedMasses: " << 1 / jointAugmentedMasses << endl;
+    //double j = -1 * ((1.0 + CRCoeff) * close_velocity) / (a_b_dot + jointAugmentedMasses);
+    std::cout << "t.normalized() * FricCoeff = " << t.normalized() * FricCoeff << std::endl;
+    std::cout << "contactNormal.normalized()" << contactNormal.normalized() << std::endl;
+
+    RowVector3d normila_fric = contactNormal.normalized() + t.normalized() * FricCoeff;
+    std::cout << "normila_fric: " << normila_fric << endl << endl << endl << endl;
+
+    RowVector3d impulse1 = j * (normila_fric);
+    //RowVector3d impulse2 = j * (normila_fric.cross(r_a)) * m1.getCurrInvInertiaTensor();
+    RowVector3d impulse2 = (r_a.cross(normila_fric)) * m1.getCurrInvInertiaTensor() * j;
+    //RowVector3d impulse3 = j * (normila_fric.cross(r_b)) * m2.getCurrInvInertiaTensor();
+    RowVector3d impulse3 = (r_b.cross(normila_fric)) * m2.getCurrInvInertiaTensor() * j;
+
+    std::cout<<"impulse: "<< impulse1 <<std::endl;
+    if (impulse1.norm()>10e-6){
+        m1.currImpulses.push_back(Impulse(contactPosition, -impulse1));
+        m1.currImpulses.push_back(Impulse(contactPosition, impulse2));
+        m2.currImpulses.push_back(Impulse(contactPosition, impulse1));
+        m2.currImpulses.push_back(Impulse(contactPosition, -impulse3));
     }
     
-    //std::cout<<"handleCollision end"<<std::endl;
     
     //updating velocities according to impulses
-    m1.updateImpulseVelocities();
-    m2.updateImpulseVelocities();
+    close_velocity = (((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a))).dot(contactNormal));
+
+    std::cout << "Normal fullVelocity before: " << close_velocity << endl;
+    m1.updateImpulseVelocities(FricCoeff);
+    m2.updateImpulseVelocities(FricCoeff);
+
+    close_velocity = (((m2.comVelocity + m2.angVelocity.cross(r_b)) - (m1.comVelocity + m1.angVelocity.cross(r_a))).dot(contactNormal));
+
+    std::cout << "Normal fullVelocity after: " << close_velocity << endl;
   }
 
-  void applyExternalForce(int i,double x, double y, double z) {
-      meshes[i].applyExternalForce(RowVector3d(x,y,z));
+  void applyExternalForce(int i,double x, double y, double z, double FricCoeff) {
+      meshes[i].applyExternalForce(RowVector3d(x,y,z), FricCoeff);
   }
   /*********************************************************************
    This function handles a single time step by:
@@ -425,7 +475,7 @@ public:
    2. detecting and handling collisions with the coefficient of restitutation CRCoeff
    3. updating the visual scene in fullV and fullT
    *********************************************************************/
-  void updateScene(double timeStep, double CRCoeff, double dragCoeff){
+  void updateScene(double timeStep, double CRCoeff, double dragCoeff, double FricCoeff){
     
     //integrating velocity, position and orientation from forces and previous states
     for (int i=0;i<meshes.size();i++)
@@ -438,7 +488,7 @@ public:
     for (int i=0;i<meshes.size();i++)
       for (int j=i+1;j<meshes.size();j++)
         if (meshes[i].isCollide(meshes[j],depth, contactNormal, penPosition))
-          handleCollision(meshes[i], meshes[j],depth, contactNormal, penPosition,CRCoeff);
+          handleCollision(meshes[i], meshes[j],depth, contactNormal, penPosition,CRCoeff, FricCoeff);
     
     currTime+=timeStep;
   }
